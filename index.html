@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TextEditor</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    background-color: #473B6E;
+    color: #fff;
+  }
+
+  .editor-container {
+    max-width: 850px;
+    min-height: 100vh;
+    background-color: #000;
+    box-shadow: -8px 0 16px -8px rgba(0,0,0,0.3), 8px 0 16px -8px rgba(0,0,0,0.3);
+    margin: 0 auto 0 150px;
+  }
+
+  @media (min-width: 1150px) {
+    .editor-container {
+      margin: 0 auto;
+    }
+  }
+
+  article {
+    outline: none;
+    padding: 18px;
+    color: #fff;
+    width: 100%;
+    min-height: 100vh;
+    font: 18px / 1.5 system-ui;
+    tab-size: 4;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    white-space: pre-wrap;
+    text-wrap-style: pretty;
+    overflow-wrap: break-word;
+  }
+
+  nav {
+    position: fixed;
+    top: 18px;
+    left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font: 14px system-ui;
+  }
+
+  nav a {
+    color: #B6D0CA;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  nav strong {
+    color: #fff;
+    font-weight: bold;
+  }
+
+  nav a:hover {
+    color: #fff;
+  }
+
+  nav strong {
+    margin-top: 8px;
+  }
+
+  nav strong:first-child {
+    margin-top: 0;
+  }
+
+  #findBar {
+    display: none;
+    position: fixed;
+    top: 0;
+    right: 0;
+    background: inherit;
+    padding: 8px 12px;
+    font: 14px system-ui;
+    gap: 8px;
+    align-items: center;
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+
+  #findBar input {
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font: inherit;
+  }
+
+  #findBar button {
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: inherit;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  #findBar button:hover {
+    background: rgba(128,128,128,0.2);
+  }
+</style>
+<nav>
+  <strong>File</strong>
+  <a id="newBtn">New</a>
+  <a id="loadDbBtn">Load from DB</a>
+  <a id="loadFileBtn">Load from File</a>
+  <a id="saveDbBtn">Save to DB</a>
+  <a id="saveFileBtn" style="display:none">Save File (overwrite)</a>
+  <a id="saveFileAsBtn">Save File As</a>
+  <a id="manageDbBtn">Manage DB</a>
+  <strong>Edit</strong>
+  <a id="undoBtn">Undo</a>
+  <a id="redoBtn">Redo</a>
+  <a id="findBtn">Find</a>
+  <a id="findReplaceBtn">Find & Replace</a>
+</nav>
+<input type="file" id="fileInput" accept=".txt" style="display:none">
+<div id="findBar">
+  <input type="text" id="findInput" placeholder="Find">
+  <input type="text" id="replaceInput" placeholder="Replace">
+  <button id="findPrevBtn">Prev</button>
+  <button id="findNextBtn">Next</button>
+  <button id="replaceBtn">Replace</button>
+  <button id="replaceAllBtn">All</button>
+  <button id="closeFindBtn">X</button>
+</div>
+<div class="editor-container">
+  <article contenteditable="plaintext-only" spellcheck></article>
+</div>
+<script>
+  // ============================================
+  // INITIALIZATION
+  // ============================================
+  const article = document.querySelector('article')
+
+  // Auto-save content after 500ms of inactivity
+  article.addEventListener('input', debounce(500, save))
+
+  // Load content on page load and URL hash change
+  addEventListener('DOMContentLoaded', load)
+  addEventListener('hashchange', load)
+
+  // ============================================
+  // URL HASH PERSISTENCE
+  // Content is compressed and stored in URL hash
+  // This allows sharing via URL and browser history
+  // ============================================
+
+  // Load content from URL hash or localStorage
+  async function load() {
+    try {
+      if (location.hash !== '') {
+        // URL has hash - decompress and display
+        await set(location.hash)
+      } else {
+        // No hash - try loading from localStorage
+        await set(localStorage.getItem('hash') ?? '')
+        if (article.textContent) {
+          // Update URL with current content
+          history.replaceState({}, '', await get())
+        }
+        article.focus()
+      }
+    } catch (e) {
+      // Decompression failed - start fresh
+      article.textContent = ''
+      article.removeAttribute('style')
+    }
+    updateTitle()
+  }
+
+  // Save content to URL hash and localStorage
+  async function save() {
+    const hash = await get()
+    if (location.hash !== hash) {
+      history.replaceState({}, '', hash)
+    }
+    try { localStorage.setItem('hash', hash) } catch (e) {}
+    updateTitle()
+  }
+
+  // Decompress hash and set article content
+  async function set(hash) {
+    // Content and style separated by null character
+    const [content, style] = (await decompress(hash.slice(1))).split('\x00')
+    article.textContent = content
+    if (style) article.setAttribute('style', style)
+  }
+
+  // Get compressed hash from article content
+  async function get() {
+    const style = article.getAttribute('style')
+    // Append style after null character if present
+    const content = article.textContent + (style !== null ? '\x00' + style : '')
+    return '#' + await compress(content)
+  }
+
+  // Update page title based on first heading in content
+  function updateTitle() {
+    // Matches lines starting with # (markdown heading style)
+    const match = article.textContent.match(/^\n*#(.+)\n/)
+    document.title = match?.[1] ?? 'TextEditor'
+  }
+
+  // ============================================
+  // COMPRESSION / DECOMPRESSION
+  // Uses gzip compression with URL-safe base64 encoding
+  // ============================================
+
+  // Compress text to URL-safe base64 using gzip
+  async function compress(text) {
+    // Convert string to bytes
+    const encoder = new TextEncoder()
+    const data = encoder.encode(text)
+
+    // Compress using gzip stream
+    const cs = new CompressionStream('gzip')
+    const writer = cs.writable.getWriter()
+    writer.write(data)
+    writer.close()
+
+    // Read compressed result
+    const compressed = await new Response(cs.readable).arrayBuffer()
+    const bytes = new Uint8Array(compressed)
+
+    // Convert bytes to binary string for base64 encoding
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+
+    // Convert to URL-safe base64: replace + with -, / with _, remove padding
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  }
+
+  // Decompress URL-safe base64 back to text
+  async function decompress(encoded) {
+    // Restore standard base64 characters
+    let b64 = encoded.replace(/-/g, '+').replace(/_/g, '/')
+
+    // Add padding if needed (base64 requires length divisible by 4)
+    while (b64.length % 4) b64 += '='
+
+    // Decode base64 to binary string
+    const binary = atob(b64)
+
+    // Convert binary string to byte array
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+
+    // Decompress using gzip stream
+    const ds = new DecompressionStream('gzip')
+    const writer = ds.writable.getWriter()
+    writer.write(bytes)
+    writer.close()
+
+    // Read decompressed result and convert to string
+    const decompressed = await new Response(ds.readable).arrayBuffer()
+    return new TextDecoder().decode(decompressed)
+  }
+
+  // ============================================
+  // UTILITY FUNCTIONS
+  // ============================================
+
+  // Debounce: delays function execution until after wait period
+  // Used to prevent excessive saves while typing
+  function debounce(ms, fn) {
+    let timer
+    return (...args) => {
+      clearTimeout(timer)
+      timer = setTimeout(() => fn(...args), ms)
+    }
+  }
+
+  // ============================================
+  // KEYBOARD SHORTCUTS
+  // ============================================
+  addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault()
+      saveFile()  // Ctrl+S: Save to file
+    }
+    if (e.ctrlKey && e.key === 'n') {
+      e.preventDefault()
+      newDocument()  // Ctrl+N: New document
+    }
+    if (e.ctrlKey && e.key === 'f') {
+      e.preventDefault()
+      openFindBar(false)  // Ctrl+F: Find
+    }
+    if (e.ctrlKey && e.key === 'h') {
+      e.preventDefault()
+      openFindBar(true)  // Ctrl+H: Find & Replace
+    }
+    if (e.key === 'Escape') {
+      closeFindBar()  // Escape: Close find bar
+    }
+  })
+
+  // ============================================
+  // FILE OPERATIONS
+  // Uses File System Access API with fallback for older browsers
+  // ============================================
+
+  // Save to current file (overwrite) or prompt for new file
+  async function saveFile() {
+    // If we have a file handle from previous open/save, overwrite it
+    if (currentFileHandle && window.showSaveFilePicker) {
+      try {
+        const writable = await currentFileHandle.createWritable()
+        await writable.write(article.textContent)
+        await writable.close()
+        return
+      } catch (e) {
+        // Permission revoked or file moved - fall through to Save As
+        alert('Could not save to existing file. Use "Save File As" instead.')
+        return
+      }
+    }
+    // No file handle - use Save As
+    saveFileAs()
+  }
+
+  // Save to a new file (always prompts for location)
+  async function saveFileAs() {
+    if (window.showSaveFilePicker) {
+      // Modern File System Access API
+      try {
+        const now = new Date()
+        const timestampName = now.getFullYear() + '_' +
+          String(now.getMonth() + 1).padStart(2, '0') + '_' +
+          String(now.getDate()).padStart(2, '0') + '_' +
+          now.getTime()
+        const handle = await showSaveFilePicker({
+          suggestedName: (currentDocName || timestampName) + '.txt',
+          types: [{ description: 'Text Files', accept: { 'text/plain': ['.txt'] } }],
+          startIn: 'downloads'
+        })
+        const writable = await handle.createWritable()
+        await writable.write(article.textContent)
+        await writable.close()
+        // Store handle for future overwrites
+        currentFileHandle = handle
+        currentDocName = handle.name.replace(/\.txt$/i, '')
+        // Show overwrite button now that we have a file handle
+        document.getElementById('saveFileBtn').style.display = ''
+      } catch (e) {
+        if (e.name !== 'AbortError') alert('Error saving: ' + e.message)
+      }
+    } else {
+      // Fallback: download via blob URL (Firefox, Safari, older browsers)
+      const now = new Date()
+      const timestampName = now.getFullYear() + '_' +
+        String(now.getMonth() + 1).padStart(2, '0') + '_' +
+        String(now.getDate()).padStart(2, '0') + '_' +
+        now.getTime()
+      const defaultName = currentDocName || timestampName
+      const filename = prompt('Save as:', defaultName)
+      if (filename === null) return
+      const blob = new Blob([article.textContent], { type: 'text/plain' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = (filename || defaultName) + '.txt'
+      a.click()
+      URL.revokeObjectURL(a.href)
+    }
+  }
+
+  // Load file from disk
+  async function loadFile() {
+    if (window.showOpenFilePicker) {
+      // Modern File System Access API
+      try {
+        const [handle] = await showOpenFilePicker({
+          types: [{ description: 'Text Files', accept: { 'text/plain': ['.txt'] } }],
+          startIn: 'downloads'
+        })
+        const file = await handle.getFile()
+        const content = await file.text()
+        article.textContent = content
+        // Store handle for future overwrites
+        currentFileHandle = handle
+        currentDocName = file.name.replace(/\.txt$/i, '')
+        document.getElementById('saveFileBtn').style.display = ''
+        updateTitle()
+        article.focus()
+      } catch (e) {
+        if (e.name !== 'AbortError') alert('Error loading: ' + e.message)
+      }
+    } else {
+      // Fallback: use hidden file input
+      document.getElementById('fileInput').click()
+    }
+  }
+
+  // Create new empty document
+  function newDocument() {
+    article.textContent = ''
+    article.removeAttribute('style')
+    history.replaceState({}, '', location.pathname)
+    try { localStorage.removeItem('hash') } catch (e) {}
+    document.title = 'TextEditor'
+    // Clear file tracking
+    currentDocName = null
+    currentFileHandle = null
+    document.getElementById('saveFileBtn').style.display = 'none'
+    article.focus()
+  }
+
+  // Fallback file input handler (Firefox, Safari, older browsers)
+  document.getElementById('fileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      article.textContent = event.target.result
+      currentDocName = file.name.replace(/\.txt$/i, '')
+      // No file handle available with this method
+      currentFileHandle = null
+      updateTitle()
+      article.focus()
+    }
+    reader.readAsText(file)
+    e.target.value = ''  // Reset input for future use
+  })
+
+  // ============================================
+  // EVENT LISTENERS - FILE BUTTONS
+  // ============================================
+  document.getElementById('newBtn').addEventListener('click', newDocument)
+  document.getElementById('saveFileBtn').addEventListener('click', saveFile)
+  document.getElementById('saveFileAsBtn').addEventListener('click', saveFileAs)
+  document.getElementById('loadFileBtn').addEventListener('click', loadFile)
+  document.getElementById('saveDbBtn').addEventListener('click', saveToDb)
+  document.getElementById('loadDbBtn').addEventListener('click', loadFromDb)
+  document.getElementById('manageDbBtn').addEventListener('click', manageDb)
+
+  // ============================================
+  // INDEXEDDB - LOCAL DATABASE STORAGE
+  // Stores documents locally in the browser
+  // Persists across sessions and browser restarts
+  // ============================================
+  const DB_NAME = 'TextEditorDB'
+  const STORE_NAME = 'documents'
+  let db = null
+  let currentDocName = null      // Tracks current document name for save defaults
+  let currentFileHandle = null   // Tracks file handle for overwrite functionality
+
+  // Open (or create) the IndexedDB database
+  async function openDb() {
+    if (db) return db
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        db = request.result
+        resolve(db)
+      }
+      // Create object store on first run or version upgrade
+      request.onupgradeneeded = (e) => {
+        const database = e.target.result
+        if (!database.objectStoreNames.contains(STORE_NAME)) {
+          database.createObjectStore(STORE_NAME, { keyPath: 'name' })
+        }
+      }
+    })
+  }
+
+  // Save current content to IndexedDB
+  async function saveToDb() {
+    // Generate default name from timestamp
+    const now = new Date()
+    const timestampName = now.getFullYear() + '_' +
+      String(now.getMonth() + 1).padStart(2, '0') + '_' +
+      String(now.getDate()).padStart(2, '0') + '_' +
+      now.getTime()
+    const defaultName = currentDocName || timestampName
+    const name = prompt('Save to DB as:', defaultName)
+    if (name === null) return
+    const finalName = name || defaultName
+    try {
+      const database = await openDb()
+      const tx = database.transaction(STORE_NAME, 'readwrite')
+      const store = tx.objectStore(STORE_NAME)
+      // put() will insert or update if name already exists
+      store.put({ name: finalName, content: article.textContent, savedAt: Date.now() })
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve
+        tx.onerror = () => reject(tx.error)
+      })
+      currentDocName = finalName
+      alert('Saved to DB: ' + finalName)
+    } catch (e) {
+      alert('Error saving to DB: ' + e.message)
+    }
+  }
+
+  // Load a document from IndexedDB
+  async function loadFromDb() {
+    try {
+      const database = await openDb()
+      const tx = database.transaction(STORE_NAME, 'readonly')
+      const store = tx.objectStore(STORE_NAME)
+      const request = store.getAll()
+      const docs = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      if (docs.length === 0) {
+        alert('No documents saved in DB')
+        return
+      }
+      // Display numbered list for selection
+      const names = docs.map((d, i) => `${i + 1}. ${d.name}`).join('\n')
+      const choice = prompt('Select document number:\n' + names)
+      if (choice === null) return
+      const index = parseInt(choice) - 1
+      if (index >= 0 && index < docs.length) {
+        article.textContent = docs[index].content
+        currentDocName = docs[index].name
+        // Clear file handle since this is from DB, not disk
+        currentFileHandle = null
+        document.getElementById('saveFileBtn').style.display = 'none'
+        updateTitle()
+        article.focus()
+      }
+    } catch (e) {
+      alert('Error loading from DB: ' + e.message)
+    }
+  }
+
+  // Delete documents from IndexedDB
+  async function manageDb() {
+    try {
+      const database = await openDb()
+      const tx = database.transaction(STORE_NAME, 'readonly')
+      const store = tx.objectStore(STORE_NAME)
+      const request = store.getAll()
+      const docs = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      if (docs.length === 0) {
+        alert('No documents in DB')
+        return
+      }
+      // Display numbered list for deletion
+      const names = docs.map((d, i) => `${i + 1}. ${d.name}`).join('\n')
+      const choice = prompt('Enter number to DELETE (or cancel):\n' + names)
+      if (choice === null) return
+      const index = parseInt(choice) - 1
+      if (index >= 0 && index < docs.length) {
+        const docName = docs[index].name
+        if (confirm('Delete "' + docName + '"?')) {
+          const deleteTx = database.transaction(STORE_NAME, 'readwrite')
+          const deleteStore = deleteTx.objectStore(STORE_NAME)
+          deleteStore.delete(docName)
+          await new Promise((resolve, reject) => {
+            deleteTx.oncomplete = resolve
+            deleteTx.onerror = () => reject(deleteTx.error)
+          })
+          alert('Deleted: ' + docName)
+        }
+      }
+    } catch (e) {
+      alert('Error managing DB: ' + e.message)
+    }
+  }
+
+  // ============================================================
+  // FIND & REPLACE
+  // Provides text search and replace functionality within the editor
+  // - Ctrl+F opens find bar (search only)
+  // - Ctrl+H opens find & replace bar
+  // - Searches are case-insensitive and wrap around
+  // - Replace All uses execCommand for undo support
+  // ============================================================
+
+  // DOM references for the find/replace bar elements
+  const findBar = document.getElementById('findBar')
+  const findInput = document.getElementById('findInput')
+  const replaceInput = document.getElementById('replaceInput')
+
+  /**
+   * Opens the find bar, optionally showing replace controls
+   * If text is selected in the editor (< 100 chars), pre-fills the find input
+   * @param {boolean} showReplace - Whether to show replace input and buttons
+   */
+  function openFindBar(showReplace) {
+    const sel = window.getSelection()
+    const selectedText = sel.toString().trim()
+    if (selectedText && selectedText.length < 100) {
+      findInput.value = selectedText
+    }
+    findBar.style.display = 'flex'
+    replaceInput.style.display = showReplace ? '' : 'none'
+    document.getElementById('replaceBtn').style.display = showReplace ? '' : 'none'
+    document.getElementById('replaceAllBtn').style.display = showReplace ? '' : 'none'
+    lastFindIndex = -1
+    findInput.focus()
+    findInput.select()
+  }
+
+  /**
+   * Closes the find bar and returns focus to the editor
+   */
+  function closeFindBar() {
+    findBar.style.display = 'none'
+    article.focus()
+  }
+
+  // Tracks the position of the last found match for sequential searching
+  // -1 means no previous search or search was reset
+  let lastFindIndex = -1
+
+  /**
+   * Searches for text within the article content (not the find bar itself)
+   * Performs case-insensitive search and wraps around when reaching the end/beginning
+   * @param {string} searchText - The text to search for
+   * @param {boolean} backwards - If true, search backwards from current position
+   * @returns {boolean} - True if found, false if not found
+   */
+  function findInArticle(searchText, backwards) {
+    const content = article.textContent
+    const lowerContent = content.toLowerCase()
+    const lowerSearch = searchText.toLowerCase()
+    let index
+
+    if (backwards) {
+      const searchFrom = lastFindIndex > 0 ? lastFindIndex - 1 : content.length
+      index = lowerContent.lastIndexOf(lowerSearch, searchFrom)
+      if (index === -1 && lastFindIndex > 0) {
+        index = lowerContent.lastIndexOf(lowerSearch)
+      }
+    } else {
+      const searchFrom = lastFindIndex >= 0 ? lastFindIndex + 1 : 0
+      index = lowerContent.indexOf(lowerSearch, searchFrom)
+      if (index === -1 && lastFindIndex >= 0) {
+        index = lowerContent.indexOf(lowerSearch)
+      }
+    }
+
+    if (index === -1) return false
+    lastFindIndex = index
+
+    // Select the found text
+    const textNode = article.firstChild
+    if (textNode) {
+      const range = document.createRange()
+      range.setStart(textNode, index)
+      range.setEnd(textNode, index + searchText.length)
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
+    return true
+  }
+
+  /**
+   * Finds the next occurrence of the search text (forward direction)
+   * Shows alert if not found
+   */
+  function findNext() {
+    const text = findInput.value
+    if (!text) return
+    if (!findInArticle(text, false)) {
+      alert('Not found')
+    }
+  }
+
+  /**
+   * Finds the previous occurrence of the search text (backward direction)
+   * Shows alert if not found
+   */
+  function findPrev() {
+    const text = findInput.value
+    if (!text) return
+    if (!findInArticle(text, true)) {
+      alert('Not found')
+    }
+  }
+
+  /**
+   * Replaces the currently selected text if it matches the find text
+   * Uses execCommand('insertText') for undo support
+   * Automatically finds the next occurrence after replacing
+   */
+  function replaceSelection() {
+    const find = findInput.value
+    const replace = replaceInput.value
+    const sel = window.getSelection()
+    if (sel.toString() === find) {
+      document.execCommand('insertText', false, replace)
+      findNext()
+    } else {
+      findNext()
+    }
+  }
+
+  /**
+   * Replaces all occurrences of the find text with the replace text
+   * Uses selectAll + insertText execCommand for full undo support
+   * (A single undo will restore all original text)
+   * Triggers save() after replacement
+   */
+  function replaceAll() {
+    const find = findInput.value
+    const replace = replaceInput.value
+    if (!find) return
+    const content = article.textContent
+    // Use split/join for simple global replacement (case-sensitive)
+    const newContent = content.split(find).join(replace)
+    if (content !== newContent) {
+      article.focus()
+      // Select all and insert to make it a single undoable operation
+      document.execCommand('selectAll')
+      document.execCommand('insertText', false, newContent)
+      save()
+    }
+  }
+
+  // ============================================================
+  // EVENT LISTENERS - FIND & REPLACE BUTTONS
+  // Wire up all find/replace bar buttons and keyboard shortcuts
+  // ============================================================
+
+  // Navigation buttons in the find bar
+  document.getElementById('findNextBtn').addEventListener('click', findNext)
+  document.getElementById('findPrevBtn').addEventListener('click', findPrev)
+
+  // Replace action buttons
+  document.getElementById('replaceBtn').addEventListener('click', replaceSelection)
+  document.getElementById('replaceAllBtn').addEventListener('click', replaceAll)
+
+  // Close button (X) to hide the find bar
+  document.getElementById('closeFindBtn').addEventListener('click', closeFindBar)
+
+  // Enter key in find input triggers find next
+  findInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); findNext() }
+  })
+
+  // Reset search position when find text changes
+  findInput.addEventListener('input', () => { lastFindIndex = -1 })
+
+  // Menu links to open find bar (from Edit menu in nav)
+  document.getElementById('findBtn').addEventListener('click', () => openFindBar(false))
+  document.getElementById('findReplaceBtn').addEventListener('click', () => openFindBar(true))
+
+  // Undo/Redo buttons use browser's built-in execCommand
+  document.getElementById('undoBtn').addEventListener('click', () => document.execCommand('undo'))
+  document.getElementById('redoBtn').addEventListener('click', () => document.execCommand('redo'))
+
+</script>
