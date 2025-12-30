@@ -34,7 +34,7 @@
   article {
     outline: none;
     padding: 18px;
-    color: #fff;
+    color: inherit;
     width: 100%;
     min-height: 100vh;
     font: 18px / 1.5 system-ui;
@@ -84,7 +84,6 @@
     position: fixed;
     top: 0;
     right: 0;
-    background: inherit;
     padding: 8px 12px;
     font: 14px system-ui;
     gap: 8px;
@@ -131,11 +130,17 @@
   <a id="startDirBtn" title="">Start Directory</a>
   <a id="fontSizeBtn" title="">Font Size</a>
   <a id="fontFamilyBtn" title="">Font Family</a>
+  <a id="spellcheckBtn" title="">Spellcheck</a>
+  <a id="wrapBtn" title="">Word Wrap</a>
+  <a id="themeBtn" title="">Theme</a>
+  <span id="wordCount" style="margin-top: 12px; font-size: 12px; color: #888;"></span>
 </nav>
 <input type="file" id="fileInput" accept=".txt" style="display:none">
 <div id="findBar">
   <input type="text" id="findInput" placeholder="Find">
   <input type="text" id="replaceInput" placeholder="Replace">
+  <label style="font-size:12px;cursor:pointer"><input type="checkbox" id="caseSensitiveChk"> Aa</label>
+  <span id="matchCount" style="font-size:12px;min-width:60px"></span>
   <button id="findPrevBtn">Prev</button>
   <button id="findNextBtn">Next</button>
   <button id="replaceBtn">Replace</button>
@@ -192,6 +197,95 @@
   // Apply saved font family on load
   article.style.fontFamily = getFontFamily()
   document.getElementById('fontFamilyBtn').title = getFontFamily()
+
+  // Get/set spellcheck preference (default: true/on)
+  const getSpellcheck = () => localStorage.getItem('spellcheck') !== 'false'
+  const setSpellcheck = (enabled) => {
+    localStorage.setItem('spellcheck', enabled)
+    article.spellcheck = enabled
+    document.getElementById('spellcheckBtn').title = enabled ? 'On' : 'Off'
+  }
+  // Apply saved spellcheck on load
+  article.spellcheck = getSpellcheck()
+  document.getElementById('spellcheckBtn').title = getSpellcheck() ? 'On' : 'Off'
+
+  // Get/set word wrap preference (default: true/on)
+  const getWrap = () => localStorage.getItem('wordWrap') !== 'false'
+  const setWrap = (enabled) => {
+    localStorage.setItem('wordWrap', enabled)
+    article.style.whiteSpace = enabled ? 'pre-wrap' : 'pre'
+    article.style.overflowX = enabled ? 'hidden' : 'auto'
+    document.getElementById('wrapBtn').title = enabled ? 'On' : 'Off'
+  }
+  // Apply saved wrap on load
+  if (!getWrap()) {
+    article.style.whiteSpace = 'pre'
+    article.style.overflowX = 'auto'
+  }
+  document.getElementById('wrapBtn').title = getWrap() ? 'On' : 'Off'
+
+  // Get/set theme preference (default: dark)
+  const getTheme = () => localStorage.getItem('theme') || 'dark'
+  const nav = document.querySelector('nav')
+  const setTheme = (theme) => {
+    localStorage.setItem('theme', theme)
+    const findBar = document.getElementById('findBar')
+    if (theme === 'light') {
+      document.documentElement.style.backgroundColor = '#D8D4E3'
+      document.querySelector('.editor-container').style.backgroundColor = '#fff'
+      document.querySelector('.editor-container').style.color = '#000'
+      article.style.color = '#000'
+      nav.querySelectorAll('strong').forEach(el => el.style.color = '#333')
+      nav.querySelectorAll('a').forEach(el => el.style.color = '#555')
+      document.getElementById('wordCount').style.color = '#666'
+      findBar.style.background = '#fff'
+      findBar.style.color = '#000'
+      findBar.querySelectorAll('button').forEach(el => {
+        el.style.background = '#fff'
+        el.style.color = '#000'
+        el.style.borderColor = '#ccc'
+      })
+      findBar.querySelectorAll('input').forEach(el => {
+        el.style.background = '#fff'
+        el.style.color = '#000'
+        el.style.borderColor = '#ccc'
+      })
+    } else {
+      document.documentElement.style.backgroundColor = '#473B6E'
+      document.querySelector('.editor-container').style.backgroundColor = '#000'
+      document.querySelector('.editor-container').style.color = '#fff'
+      article.style.color = '#fff'
+      nav.querySelectorAll('strong').forEach(el => el.style.color = '#fff')
+      nav.querySelectorAll('a').forEach(el => el.style.color = '#B6D0CA')
+      document.getElementById('wordCount').style.color = '#999'
+      findBar.style.background = '#2a2244'
+      findBar.style.color = '#fff'
+      findBar.querySelectorAll('button').forEach(el => {
+        el.style.background = '#3d3260'
+        el.style.color = '#fff'
+        el.style.borderColor = '#555'
+      })
+      findBar.querySelectorAll('input').forEach(el => {
+        el.style.background = '#1a1530'
+        el.style.color = '#fff'
+        el.style.borderColor = '#555'
+      })
+    }
+    document.getElementById('themeBtn').title = theme
+  }
+  // Apply saved theme on load
+  setTheme(getTheme())
+
+  // Word/character count - update on input
+  function updateWordCount() {
+    const text = article.textContent
+    const chars = text.length
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0
+    document.getElementById('wordCount').textContent = `${words} words, ${chars} chars`
+  }
+  article.addEventListener('input', debounce(300, updateWordCount))
+  // Initial count after load
+  addEventListener('DOMContentLoaded', () => setTimeout(updateWordCount, 100))
 
   // ============================================
   // URL HASH PERSISTENCE
@@ -359,7 +453,7 @@
   // ============================================
   // KEYBOARD SHORTCUTS
   // ============================================
-  addEventListener('keydown', (e) => {
+  document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 's') {
       e.preventDefault()
       // Ctrl+S: Prompt for save destination
@@ -382,7 +476,16 @@
     if (e.key === 'Escape') {
       closeFindBar()  // Escape: Close find bar
     }
-  })
+    if (e.ctrlKey && e.key.toLowerCase() === 'o') {
+      e.preventDefault()
+      loadFile()  // Ctrl+O: Open file
+    }
+    // Tab key inserts tab character instead of moving focus
+    if (e.key === 'Tab' && document.activeElement === article) {
+      e.preventDefault()
+      document.execCommand('insertText', false, '\t')
+    }
+  }, true)
 
   // ============================================
   // FILE OPERATIONS
@@ -677,6 +780,8 @@
   const findBar = document.getElementById('findBar')
   const findInput = document.getElementById('findInput')
   const replaceInput = document.getElementById('replaceInput')
+  const caseSensitiveChk = document.getElementById('caseSensitiveChk')
+  const matchCountSpan = document.getElementById('matchCount')
 
   /**
    * Opens the find bar, optionally showing replace controls
@@ -711,29 +816,53 @@
   let lastFindIndex = -1
 
   /**
+   * Updates the match count display
+   */
+  function updateMatchCount() {
+    const searchText = findInput.value
+    if (!searchText) {
+      matchCountSpan.textContent = ''
+      return 0
+    }
+    const content = article.textContent
+    const caseSensitive = caseSensitiveChk.checked
+    const searchContent = caseSensitive ? content : content.toLowerCase()
+    const searchFor = caseSensitive ? searchText : searchText.toLowerCase()
+    let count = 0
+    let pos = 0
+    while ((pos = searchContent.indexOf(searchFor, pos)) !== -1) {
+      count++
+      pos += searchFor.length
+    }
+    matchCountSpan.textContent = count > 0 ? `${count} found` : 'No matches'
+    return count
+  }
+
+  /**
    * Searches for text within the article content (not the find bar itself)
-   * Performs case-insensitive search and wraps around when reaching the end/beginning
+   * Respects case sensitivity setting and wraps around when reaching the end/beginning
    * @param {string} searchText - The text to search for
    * @param {boolean} backwards - If true, search backwards from current position
    * @returns {boolean} - True if found, false if not found
    */
   function findInArticle(searchText, backwards) {
     const content = article.textContent
-    const lowerContent = content.toLowerCase()
-    const lowerSearch = searchText.toLowerCase()
+    const caseSensitive = caseSensitiveChk.checked
+    const searchContent = caseSensitive ? content : content.toLowerCase()
+    const searchFor = caseSensitive ? searchText : searchText.toLowerCase()
     let index
 
     if (backwards) {
       const searchFrom = lastFindIndex > 0 ? lastFindIndex - 1 : content.length
-      index = lowerContent.lastIndexOf(lowerSearch, searchFrom)
+      index = searchContent.lastIndexOf(searchFor, searchFrom)
       if (index === -1 && lastFindIndex > 0) {
-        index = lowerContent.lastIndexOf(lowerSearch)
+        index = searchContent.lastIndexOf(searchFor)
       }
     } else {
       const searchFrom = lastFindIndex >= 0 ? lastFindIndex + 1 : 0
-      index = lowerContent.indexOf(lowerSearch, searchFrom)
+      index = searchContent.indexOf(searchFor, searchFrom)
       if (index === -1 && lastFindIndex >= 0) {
-        index = lowerContent.indexOf(lowerSearch)
+        index = searchContent.indexOf(searchFor)
       }
     }
 
@@ -837,8 +966,11 @@
     if (e.key === 'Enter') { e.preventDefault(); findNext() }
   })
 
-  // Reset search position when find text changes
-  findInput.addEventListener('input', () => { lastFindIndex = -1 })
+  // Reset search position when find text changes and update match count
+  findInput.addEventListener('input', () => { lastFindIndex = -1; updateMatchCount() })
+
+  // Update match count when case sensitivity changes
+  caseSensitiveChk.addEventListener('change', () => { lastFindIndex = -1; updateMatchCount() })
 
   // Menu links to open find bar (from Edit menu in nav)
   document.getElementById('findBtn').addEventListener('click', () => openFindBar(false))
@@ -948,6 +1080,29 @@
       )
       if (input) setFontFamily(input)
     }
+  })
+
+  // Spellcheck setting - toggle on/off
+  document.getElementById('spellcheckBtn').addEventListener('click', () => {
+    const current = getSpellcheck()
+    setSpellcheck(!current)
+    // Force browser to re-check spelling by toggling contenteditable
+    if (!current) {
+      article.contentEditable = 'false'
+      article.offsetHeight  // Force reflow
+      article.contentEditable = 'plaintext-only'
+      article.focus()
+    }
+  })
+
+  // Word Wrap setting - toggle on/off
+  document.getElementById('wrapBtn').addEventListener('click', () => {
+    setWrap(!getWrap())
+  })
+
+  // Theme setting - toggle dark/light
+  document.getElementById('themeBtn').addEventListener('click', () => {
+    setTheme(getTheme() === 'dark' ? 'light' : 'dark')
   })
 
 </script>
