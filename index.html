@@ -111,7 +111,7 @@
   }
 </style>
 <nav>
-  <strong>File</strong>
+  <strong>File<sup id="dirtyIndicator" style="display:none">*</sup></strong>
   <a id="newBtn">New</a>
   <a id="loadDbBtn">Load from DB</a>
   <a id="loadFileBtn">Load from File</a>
@@ -124,6 +124,10 @@
   <a id="redoBtn">Redo</a>
   <a id="findBtn">Find</a>
   <a id="findReplaceBtn">Find & Replace</a>
+  <strong>Settings</strong>
+  <a id="startDirBtn" title="">Start Directory</a>
+  <a id="fontSizeBtn" title="">Font Size</a>
+  <a id="fontFamilyBtn" title="">Font Family</a>
 </nav>
 <input type="file" id="fileInput" accept=".txt" style="display:none">
 <div id="findBar">
@@ -147,9 +151,44 @@
   // Auto-save content after 500ms of inactivity
   article.addEventListener('input', debounce(500, save))
 
+  // Show dirty indicator when content is edited
+  article.addEventListener('input', () => {
+    document.getElementById('dirtyIndicator').style.display = ''
+  })
+
   // Load content on page load and URL hash change
   addEventListener('DOMContentLoaded', load)
   addEventListener('hashchange', load)
+
+  // Track current document name (used for save defaults and URL encoding)
+  let currentDocName = null
+
+  // Get saved start directory preference for file dialogs
+  // Valid values: 'downloads', 'documents', 'desktop'
+  const getStartDir = () => localStorage.getItem('startDir') || 'documents'
+  document.getElementById('startDirBtn').title = getStartDir()
+
+  // Get/set font size preference (default: 18px)
+  const getFontSize = () => parseInt(localStorage.getItem('fontSize')) || 18
+  const setFontSize = (size) => {
+    localStorage.setItem('fontSize', size)
+    article.style.fontSize = size + 'px'
+    document.getElementById('fontSizeBtn').title = size + 'px'
+  }
+  // Apply saved font size on load
+  article.style.fontSize = getFontSize() + 'px'
+  document.getElementById('fontSizeBtn').title = getFontSize() + 'px'
+
+  // Get/set font family preference (default: system-ui)
+  const getFontFamily = () => localStorage.getItem('fontFamily') || 'system-ui'
+  const setFontFamily = (family) => {
+    localStorage.setItem('fontFamily', family)
+    article.style.fontFamily = family
+    document.getElementById('fontFamilyBtn').title = family
+  }
+  // Apply saved font family on load
+  article.style.fontFamily = getFontFamily()
+  document.getElementById('fontFamilyBtn').title = getFontFamily()
 
   // ============================================
   // URL HASH PERSISTENCE
@@ -191,19 +230,47 @@
   }
 
   // Decompress hash and set article content
+  // Supports both old format (plain content) and new format (JSON with filename)
   async function set(hash) {
-    // Content and style separated by null character
-    const [content, style] = (await decompress(hash.slice(1))).split('\x00')
+    const decompressed = await decompress(hash.slice(1))
+    let content, style, docName
+
+    // Try parsing as JSON (new format with filename)
+    try {
+      const parsed = JSON.parse(decompressed)
+      if (parsed.c !== undefined) {
+        // New format: {n: filename, c: content\x00style}
+        const parts = parsed.c.split('\x00')
+        content = parts[0]
+        style = parts[1]
+        docName = parsed.n || null
+      } else {
+        throw new Error('Not new format')
+      }
+    } catch (e) {
+      // Old format: content\x00style (no JSON wrapper)
+      const parts = decompressed.split('\x00')
+      content = parts[0]
+      style = parts[1]
+      docName = null
+    }
+
     article.textContent = content
     if (style) article.setAttribute('style', style)
+    // Set document name from URL (but don't set file handle - this is a shared URL)
+    currentDocName = docName
   }
 
-  // Get compressed hash from article content
+  // Get compressed hash from article content (includes filename if set)
   async function get() {
     const style = article.getAttribute('style')
     // Append style after null character if present
-    const content = article.textContent + (style !== null ? '\x00' + style : '')
-    return '#' + await compress(content)
+    const contentWithStyle = article.textContent + (style !== null ? '\x00' + style : '')
+    // Wrap in JSON with filename if we have one
+    const payload = currentDocName
+      ? JSON.stringify({n: currentDocName, c: contentWithStyle})
+      : contentWithStyle
+    return '#' + await compress(payload)
   }
 
   // Update page title based on first heading in content
@@ -292,7 +359,10 @@
   addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 's') {
       e.preventDefault()
-      saveFile()  // Ctrl+S: Save to file
+      // Ctrl+S: Prompt for save destination
+      const choice = prompt('Save to:\n1. File\n2. Database\n\nEnter 1 or 2:')
+      if (choice === '1') saveFile()
+      else if (choice === '2') saveToDb()
     }
     if (e.ctrlKey && e.key === 'n') {
       e.preventDefault()
@@ -324,6 +394,7 @@
         const writable = await currentFileHandle.createWritable()
         await writable.write(article.textContent)
         await writable.close()
+        document.getElementById('dirtyIndicator').style.display = 'none'
         return
       } catch (e) {
         // Permission revoked or file moved - fall through to Save As
@@ -348,7 +419,7 @@
         const handle = await showSaveFilePicker({
           suggestedName: (currentDocName || timestampName) + '.txt',
           types: [{ description: 'Text Files', accept: { 'text/plain': ['.txt'] } }],
-          startIn: 'downloads'
+          startIn: getStartDir()
         })
         const writable = await handle.createWritable()
         await writable.write(article.textContent)
@@ -358,6 +429,7 @@
         currentDocName = handle.name.replace(/\.txt$/i, '')
         // Show overwrite button now that we have a file handle
         document.getElementById('saveFileBtn').style.display = ''
+        document.getElementById('dirtyIndicator').style.display = 'none'
       } catch (e) {
         if (e.name !== 'AbortError') alert('Error saving: ' + e.message)
       }
@@ -377,6 +449,7 @@
       a.download = (filename || defaultName) + '.txt'
       a.click()
       URL.revokeObjectURL(a.href)
+      document.getElementById('dirtyIndicator').style.display = 'none'
     }
   }
 
@@ -387,7 +460,7 @@
       try {
         const [handle] = await showOpenFilePicker({
           types: [{ description: 'Text Files', accept: { 'text/plain': ['.txt'] } }],
-          startIn: 'downloads'
+          startIn: getStartDir()
         })
         const file = await handle.getFile()
         const content = await file.text()
@@ -396,7 +469,9 @@
         currentFileHandle = handle
         currentDocName = file.name.replace(/\.txt$/i, '')
         document.getElementById('saveFileBtn').style.display = ''
+        document.getElementById('dirtyIndicator').style.display = 'none'
         updateTitle()
+        save()  // Update URL hash with loaded content and filename
         article.focus()
       } catch (e) {
         if (e.name !== 'AbortError') alert('Error loading: ' + e.message)
@@ -418,6 +493,7 @@
     currentDocName = null
     currentFileHandle = null
     document.getElementById('saveFileBtn').style.display = 'none'
+    document.getElementById('dirtyIndicator').style.display = 'none'
     article.focus()
   }
 
@@ -431,7 +507,9 @@
       currentDocName = file.name.replace(/\.txt$/i, '')
       // No file handle available with this method
       currentFileHandle = null
+      document.getElementById('dirtyIndicator').style.display = 'none'
       updateTitle()
+      save()  // Update URL hash with loaded content and filename
       article.focus()
     }
     reader.readAsText(file)
@@ -457,7 +535,6 @@
   const DB_NAME = 'TextEditorDB'
   const STORE_NAME = 'documents'
   let db = null
-  let currentDocName = null      // Tracks current document name for save defaults
   let currentFileHandle = null   // Tracks file handle for overwrite functionality
 
   // Open (or create) the IndexedDB database
@@ -503,6 +580,7 @@
         tx.onerror = () => reject(tx.error)
       })
       currentDocName = finalName
+      document.getElementById('dirtyIndicator').style.display = 'none'
       alert('Saved to DB: ' + finalName)
     } catch (e) {
       alert('Error saving to DB: ' + e.message)
@@ -535,7 +613,9 @@
         // Clear file handle since this is from DB, not disk
         currentFileHandle = null
         document.getElementById('saveFileBtn').style.display = 'none'
+        document.getElementById('dirtyIndicator').style.display = 'none'
         updateTitle()
+        save()  // Update URL hash with loaded content and filename
         article.focus()
       }
     } catch (e) {
@@ -764,5 +844,107 @@
   // Undo/Redo buttons use browser's built-in execCommand
   document.getElementById('undoBtn').addEventListener('click', () => document.execCommand('undo'))
   document.getElementById('redoBtn').addEventListener('click', () => document.execCommand('redo'))
+
+  // ============================================
+  // SETTINGS
+  // ============================================
+
+  // Start Directory setting - where file dialogs open
+  document.getElementById('startDirBtn').addEventListener('click', () => {
+    const current = getStartDir()
+    const choice = prompt(
+      'Start directory for file dialogs:\n' +
+      '1. documents\n' +
+      '2. downloads\n' +
+      '3. desktop\n\n' +
+      'Current: ' + current
+    )
+    if (choice === '1') {
+      localStorage.setItem('startDir', 'documents')
+      document.getElementById('startDirBtn').title = 'documents'
+    } else if (choice === '2') {
+      localStorage.setItem('startDir', 'downloads')
+      document.getElementById('startDirBtn').title = 'downloads'
+    } else if (choice === '3') {
+      localStorage.setItem('startDir', 'desktop')
+      document.getElementById('startDirBtn').title = 'desktop'
+    }
+  })
+
+  // Font Size setting
+  document.getElementById('fontSizeBtn').addEventListener('click', () => {
+    const current = getFontSize()
+    const input = prompt('Enter font size in pixels (10-48):\n\nCurrent: ' + current, current)
+    if (input !== null) {
+      const size = parseInt(input)
+      if (size >= 10 && size <= 48) {
+        setFontSize(size)
+      } else {
+        alert('Please enter a number between 10 and 48')
+      }
+    }
+  })
+
+  // Font Family setting - uses Local Fonts API (Chrome 103+) with fallback
+  document.getElementById('fontFamilyBtn').addEventListener('click', async () => {
+    const current = getFontFamily()
+
+    // Check if Local Fonts API is available
+    if ('queryLocalFonts' in window) {
+      try {
+        const fonts = await window.queryLocalFonts()
+        // Get unique font families
+        const families = [...new Set(fonts.map(f => f.family))].sort()
+
+        // Build selection list (show first 50 + current)
+        const pageSize = 30
+        let page = 0
+        const totalPages = Math.ceil(families.length / pageSize)
+
+        const showPage = () => {
+          const start = page * pageSize
+          const pageItems = families.slice(start, start + pageSize)
+          const list = pageItems.map((f, i) => `${start + i + 1}. ${f}`).join('\n')
+          const choice = prompt(
+            `Select font (page ${page + 1}/${totalPages}):\n` +
+            `Type number, or: N=next, P=prev, C=custom\n\n` +
+            list + `\n\nCurrent: ${current}`,
+            ''
+          )
+
+          if (choice === null) return
+          if (choice.toUpperCase() === 'N' && page < totalPages - 1) {
+            page++
+            showPage()
+          } else if (choice.toUpperCase() === 'P' && page > 0) {
+            page--
+            showPage()
+          } else if (choice.toUpperCase() === 'C') {
+            const custom = prompt('Enter font family name:', current)
+            if (custom) setFontFamily(custom)
+          } else {
+            const idx = parseInt(choice) - 1
+            if (idx >= 0 && idx < families.length) {
+              setFontFamily(families[idx])
+            }
+          }
+        }
+        showPage()
+      } catch (e) {
+        // Permission denied or error - fall back to text input
+        const input = prompt('Enter font family name:\n\nCurrent: ' + current, current)
+        if (input) setFontFamily(input)
+      }
+    } else {
+      // Fallback for browsers without Local Fonts API
+      const input = prompt(
+        'Enter font family name:\n\n' +
+        'Examples: Arial, Georgia, Courier New, Verdana\n\n' +
+        'Current: ' + current,
+        current
+      )
+      if (input) setFontFamily(input)
+    }
+  })
 
 </script>
