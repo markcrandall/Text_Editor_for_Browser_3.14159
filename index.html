@@ -286,6 +286,9 @@
       for (let i = 1; i <= lines; i++) nums.push(i)
       lineNumbersEl.textContent = nums.join('\n')
       lineNumbersEl.style.display = 'block'
+      // Sync font with article
+      lineNumbersEl.style.fontSize = article.style.fontSize || '18px'
+      lineNumbersEl.style.fontFamily = article.style.fontFamily || 'system-ui'
     } else {
       lineNumbersEl.style.display = 'none'
     }
