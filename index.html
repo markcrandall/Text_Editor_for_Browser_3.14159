@@ -530,6 +530,57 @@
     }
   }
 
+  // Go to specific line number (Ctrl+G)
+  function goToLine() {
+    // Only available when line numbers are on
+    if (!getLineNumbers() || getWrap()) {
+      alert('Go to Line requires Line Numbers to be ON and Word Wrap to be OFF')
+      return
+    }
+    const text = article.textContent
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    let totalLines = (normalized.match(/\n/g) || []).length + 1
+    if (normalized.endsWith('\n')) totalLines--
+    if (totalLines < 1) totalLines = 1
+
+    const input = prompt(`Go to line (1-${totalLines}):`)
+    if (input === null) return
+    const lineNum = parseInt(input)
+    if (isNaN(lineNum) || lineNum < 1 || lineNum > totalLines) {
+      alert(`Invalid line number. Enter a number between 1 and ${totalLines}.`)
+      return
+    }
+
+    // Find the character position of the start of the target line
+    const lines = normalized.split('\n')
+    let charPos = 0
+    for (let i = 0; i < lineNum - 1; i++) {
+      charPos += lines[i].length + 1  // +1 for newline
+    }
+
+    // Set cursor position at start of line
+    article.focus()
+    const textNode = article.firstChild
+    if (textNode) {
+      const range = document.createRange()
+      const sel = window.getSelection()
+      // Clamp position to text length
+      const pos = Math.min(charPos, textNode.length)
+      range.setStart(textNode, pos)
+      range.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(range)
+      // Scroll cursor into view
+      const rangeRect = range.getBoundingClientRect()
+      if (rangeRect) {
+        window.scrollTo({
+          top: window.scrollY + rangeRect.top - window.innerHeight / 3,
+          behavior: 'smooth'
+        })
+      }
+    }
+  }
+
   // ============================================
   // KEYBOARD SHORTCUTS
   // ============================================
@@ -559,6 +610,10 @@
     if (e.ctrlKey && e.key.toLowerCase() === 'o') {
       e.preventDefault()
       loadFile()  // Ctrl+O: Open file
+    }
+    if (e.ctrlKey && e.key.toLowerCase() === 'g') {
+      e.preventDefault()
+      goToLine()  // Ctrl+G: Go to line
     }
     // Tab key inserts tab character instead of moving focus
     if (e.key === 'Tab' && document.activeElement === article) {
