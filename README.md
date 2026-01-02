@@ -1,6 +1,8 @@
 # TextEditor
-
 A lightweight, privacy-focused text editor that runs entirely in your browser. No server required, no data leaves your machine.
+
+## Demo / TL;DR
+<a href="https://markcrandall.github.io/Text_Editor_for_Browser_3.14159/#H4sIAAAAAAAACm1UwY7iRhD9lZKjRDPZJcNecoATDLCLMgMRNrsbiUthl3Fr2l1WdxkzG-Xfo24PxjDrgw9d77mqn9-rfyMTjaKETgLzTAlbWBontk5FsXHRxyiNRtEvyfx7AvPZMllvYABbRxY-1yqjndmZxfJpDs_z1XZnAFbUwO3zaAmFYK_RvEDGaV2SEQ9-Yswgt1zCbHoGrysy4PBIWQdtIXvLje_rhC0e6Jq_UJp6_D_kJJD7s1DNlHvx-BiPBMK9bm9nXSfhn_UJmNBi4s68GTdG-_4dF92lr2c9o8EDXTWDr4qah4w0Cd1c0nkpvcKdlFuT8a2U4UyjE0gLNO10G3qPC2e1ydhQD7lQJrtFBr1yX9ij7UC_wYYqjSn9BASNkgJsW_dTx_MkWa4-x3BX8JEshJcjEWUOXlFHBGltrRfpiLqm-yCqoBWYKUupsH1tRaUcay2Qs87IQs62_YuZQs0HF8ZjIxCrH9S7w5txxZvYqR_U4RZYKv16i8u5tV9ckdZpQenL5VPT89_3NQhFfws2D5znnvSNbQbfLFa9_k_KEDQWq-oamxRU9ucMV0T7AmzhSR0KAfEID72LW70cYFXpVy8bag2GGlDGCZqUHHAOvSDet-FbzWA62fhvTLAdeM-nrl3Ch4MmSNHRwJFxStSRwBHatGhNKmkBKddGLpEouHFg6nLvf2YOpceQg5xrk3nS35aODyuv9uVZ4VEdQsxJGiJzZrUODV55mGjdc2jrr7Mx2IYL91jfb63qV4lmRz277sxf83-m68lmBvGX9SZ53Cax5z6K1R9W11y_mvrbJ2DW15jrjdKh4mtU2Ad3leWyEhdcGpYDW5hN7zvS4prkc9XVvryvXTIXrIP7d5dfGkdWQHDvM20xFQqJnbsUqxufXQv1EVgKCnrFySTZxrBczZaPk2S9CXL9DpgL2d4a9aumXVDt-nCd96-9AlMW4dLbxOARXLBOwzZzgCa7zOnXWz0cDoc-fAMf0hF8-rM6jUMaB3kI6gh20ZTsC2l6hWc2vIvG0BRKaOAqTGkElaVx2C-55mbgIzcCw7ZEPYZGZVKMoMTTIGUjZGQMpTKDt_NPw-Gv4-i__wGJQDGx8AYAAA" target="_blank">Click Here to try it in your browser.</a>
 
 ## Overview
 
@@ -123,4 +125,5 @@ For longer-term storage, save documents to the browser's IndexedDB:
 ### File System
 
 Export documents to disk as `.txt` files, or open existing text files for editing. On Chrome/Edge, the File System Access API enables direct file overwriting.
+
 
