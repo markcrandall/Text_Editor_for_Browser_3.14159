@@ -184,6 +184,43 @@
 </div>
 <script>
   // ============================================
+  // AUDIO FEEDBACK
+  // ============================================
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Higher pitch click for ON
+  function click() {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.frequency.value = 1800;
+    gain.gain.value = 0.08;
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.06);
+
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.06);
+  }
+
+  // Lower pitch clock for OFF
+  function clock() {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.frequency.value = 1200;
+    gain.gain.value = 0.06;
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.08);
+  }
+
+  // ============================================
   // INITIALIZATION
   // ============================================
   const article = document.querySelector('article')
@@ -1228,6 +1265,7 @@
   document.getElementById('spellcheckBtn').addEventListener('click', () => {
     const current = getSpellcheck()
     setSpellcheck(!current)
+    current ? clock() : click()
     // Force browser to re-check spelling by toggling contenteditable
     if (!current) {
       article.contentEditable = 'false'
@@ -1239,7 +1277,9 @@
 
   // Word Wrap setting - toggle on/off
   document.getElementById('wrapBtn').addEventListener('click', () => {
-    setWrap(!getWrap())
+    const current = getWrap()
+    setWrap(!current)
+    current ? clock() : click()
   })
 
   // Line Numbers setting - toggle on/off (only works when wrap is off)
@@ -1248,12 +1288,16 @@
       alert('Line numbers require Word Wrap to be OFF')
       return
     }
-    setLineNumbers(!getLineNumbers())
+    const current = getLineNumbers()
+    setLineNumbers(!current)
+    current ? clock() : click()
   })
 
   // Theme setting - toggle dark/light
   document.getElementById('themeBtn').addEventListener('click', () => {
-    setTheme(getTheme() === 'dark' ? 'light' : 'dark')
+    const current = getTheme()
+    setTheme(current === 'dark' ? 'light' : 'dark')
+    current === 'dark' ? clock() : click()
   })
 
 </script>
